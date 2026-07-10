@@ -1,0 +1,432 @@
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #050403; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: #e9dccb;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+  #stage { position: fixed; inset: 0; display: block; touch-action: none; }
+
+  #ui {
+    position: fixed; top: 14px; left: 14px; z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 14px 16px 16px;
+    width: 232px;
+    background: rgba(20,15,10,0.55);
+    border: 1px solid rgba(240,180,110,0.14);
+    border-radius: 14px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    transition: opacity .35s ease, transform .35s ease;
+  }
+  #ui.hidden { opacity: 0; transform: translateY(-8px); pointer-events: none; }
+  #ui h1 {
+    font-size: 12px; letter-spacing: .22em; text-transform: uppercase;
+    font-weight: 600; color: #f2b46a; opacity: .9;
+  }
+  #ui .sub { font-size: 10.5px; line-height: 1.5; color: rgba(233,220,203,.5); margin-top:-4px; }
+  .row { display: flex; flex-direction: column; gap: 5px; }
+  .row label { font-size: 10.5px; letter-spacing: .04em; display: flex; justify-content: space-between; color: rgba(233,220,203,.72); }
+  .row label b { color: #f2b46a; font-weight: 600; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 3px; border-radius: 3px;
+    background: rgba(240,180,110,0.22); outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: #f2b46a; cursor: pointer; border: 2px solid #1a120a;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 15px; height: 15px; border-radius: 50%;
+    background: #f2b46a; cursor: pointer; border: 2px solid #1a120a;
+  }
+  input[type=range]:focus-visible { outline: 2px solid #f2b46a; outline-offset: 4px; }
+  .btns { display: flex; gap: 8px; margin-top: 2px; }
+  .btns button {
+    flex: 1; font-size: 11px; letter-spacing: .04em;
+    padding: 8px 0; border-radius: 9px; cursor: pointer;
+    color: #e9dccb; background: rgba(240,180,110,0.10);
+    border: 1px solid rgba(240,180,110,0.20);
+    transition: background .18s ease;
+  }
+  .btns button:hover { background: rgba(240,180,110,0.20); }
+  .btns button:focus-visible { outline: 2px solid #f2b46a; outline-offset: 2px; }
+  #toggleUi {
+    position: fixed; top: 14px; left: 14px; z-index: 11;
+    width: 40px; height: 40px; border-radius: 11px; cursor: pointer;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(20,15,10,0.55); border: 1px solid rgba(240,180,110,0.14);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    color: #f2b46a; font-size: 18px;
+  }
+  #toggleUi.show { display: flex; }
+  #hint {
+    position: fixed; bottom: 20px; left: 0; right: 0; z-index: 9;
+    text-align: center; font-size: 12px; letter-spacing: .05em;
+    color: rgba(233,220,203,.4); pointer-events: none;
+    transition: opacity 1s ease; opacity: 1;
+  }
+  #hint.gone { opacity: 0; }
+</style>
+
+<canvas id="stage"></canvas>
+
+<button id="toggleUi" aria-label="ajustes">≡</button>
+<div id="ui">
+  <h1>Instante</h1>
+  <div class="sub">Point cloud de granos. Arrastra el dedo o el ratón para empujarlos; siempre vuelven a su sitio.</div>
+
+  <div class="row">
+    <label>Densidad <b id="vDensity"></b></label>
+    <input id="density" type="range" min="1800" max="9000" step="200" value="4600">
+  </div>
+  <div class="row">
+    <label>Radio del dedo <b id="vRadius"></b></label>
+    <input id="radius" type="range" min="30" max="180" step="5" value="90">
+  </div>
+  <div class="row">
+    <label>Fuerza del dedo <b id="vForce"></b></label>
+    <input id="force" type="range" min="0.2" max="3" step="0.1" value="1.4">
+  </div>
+  <div class="row">
+    <label>Retorno a casa <b id="vSpring"></b></label>
+    <input id="spring" type="range" min="0.01" max="0.14" step="0.005" value="0.055">
+  </div>
+  <div class="row">
+    <label>Colisión entre granos <b id="vCol"></b></label>
+    <input id="collision" type="range" min="0" max="0.6" step="0.02" value="0.3">
+  </div>
+  <div class="btns">
+    <button id="reset">Reiniciar</button>
+    <button id="hide">Ocultar</button>
+  </div>
+</div>
+
+<div id="hint">mueve el dedo sobre los granos</div>
+
+<script>
+"use strict";
+(() => {
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  const cfg = {
+    density:   4600,
+    pointerR:  90,
+    pointerF:  1.4,
+    spring:    0.055,
+    collision: 0.3,
+    damping:   0.86,
+  };
+
+  let W = 0, H = 0, DPR = 1;
+  let spacing = 22;
+  let particles = [];
+  let cols = 0, rows = 0, originX = 0, originY = 0;
+
+  let sprites = [];
+  let spriteBase = 0;
+
+  let gridCell = 0, gridW = 0, gridH = 0, grid = null;
+
+  const pointers = new Map();
+
+  function hash2(ix, iy) {
+    let h = ix * 374761393 + iy * 668265263;
+    h = (h ^ (h >> 13)) * 1274126177;
+    return ((h ^ (h >> 16)) >>> 0) / 4294967295;
+  }
+  function smooth(t) { return t * t * (3 - 2 * t); }
+  function valueNoise(x, y) {
+    const ix = Math.floor(x), iy = Math.floor(y);
+    const fx = x - ix, fy = y - iy;
+    const a = hash2(ix, iy),     b = hash2(ix + 1, iy);
+    const c = hash2(ix, iy + 1), d = hash2(ix + 1, iy + 1);
+    const u = smooth(fx), v = smooth(fy);
+    return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+  }
+
+  const TINTS = [
+    [[255,236,200],[255,203,128],[150,86,30]],
+    [[255,224,170],[247,168,74],[128,66,22]],
+    [[255,210,150],[233,124,48],[104,48,16]],
+    [[255,196,132],[210,96,34],[86,38,14]],
+    [[250,214,160],[201,138,58],[92,52,20]],
+    [[255,230,185],[224,150,66],[112,58,20]],
+  ];
+
+  function buildSprites(size) {
+    spriteBase = size;
+    sprites = TINTS.map(([hi, mid, lo]) => {
+      const s = Math.ceil(size);
+      const c = document.createElement('canvas');
+      c.width = c.height = s;
+      const g = c.getContext('2d');
+      const r = s / 2;
+      const grad = g.createRadialGradient(r * 0.66, r * 0.6, r * 0.05, r, r, r);
+      grad.addColorStop(0.0, `rgb(${hi[0]},${hi[1]},${hi[2]})`);
+      grad.addColorStop(0.35, `rgb(${mid[0]},${mid[1]},${mid[2]})`);
+      grad.addColorStop(0.85, `rgb(${lo[0]},${lo[1]},${lo[2]})`);
+      grad.addColorStop(1.0, `rgba(${lo[0]},${lo[1]},${lo[2]},0)`);
+      g.fillStyle = grad;
+      g.beginPath();
+      g.arc(r, r, r, 0, Math.PI * 2);
+      g.fill();
+      const spec = g.createRadialGradient(r * 0.62, r * 0.52, 0, r * 0.62, r * 0.52, r * 0.4);
+      spec.addColorStop(0, 'rgba(255,255,250,0.55)');
+      spec.addColorStop(1, 'rgba(255,255,250,0)');
+      g.fillStyle = spec;
+      g.beginPath();
+      g.arc(r * 0.62, r * 0.52, r * 0.4, 0, Math.PI * 2);
+      g.fill();
+      return c;
+    });
+  }
+
+  function build() {
+    spacing = Math.max(9, Math.sqrt((W * H) / cfg.density));
+    const margin = spacing * 0.5;
+    cols = Math.floor((W - margin * 2) / spacing) + 1;
+    rows = Math.floor((H - margin * 2) / spacing) + 1;
+    const gridWpx = (cols - 1) * spacing;
+    const gridHpx = (rows - 1) * spacing;
+    originX = (W - gridWpx) / 2;
+    originY = (H - gridHpx) / 2;
+
+    buildSprites(spacing * 1.55);
+
+    particles = new Array(cols * rows);
+    let k = 0;
+    const hotX = W * (0.42 + hash2(7, 3) * 0.16);
+    const hotY = H * (0.34 + hash2(11, 5) * 0.14);
+    const maxD = Math.hypot(W, H);
+
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        const hx = originX + i * spacing;
+        const hy = originY + j * spacing;
+        const n = valueNoise(hx * 0.012, hy * 0.012);
+        const dHot = Math.hypot(hx - hotX, hy - hotY) / maxD;
+        let field = n * 0.55 + (1 - dHot) * 0.85;
+        field = Math.max(0, Math.min(1, field));
+        let ti = Math.floor((1 - field) * TINTS.length);
+        ti = Math.max(0, Math.min(TINTS.length - 1, ti));
+        const jx = (hash2(i, j) - 0.5) * spacing * 0.12;
+        const jy = (hash2(i + 99, j + 77) - 0.5) * spacing * 0.12;
+        const sc = 0.72 + hash2(i * 3, j * 5) * 0.5;
+        particles[k++] = {
+          x: hx + jx, y: hy + jy,
+          hx, hy,
+          vx: 0, vy: 0,
+          tint: ti,
+          scale: sc,
+          bright: 0.85 + hash2(i * 7, j * 2) * 0.3,
+        };
+      }
+    }
+
+    gridCell = spacing;
+    gridW = Math.ceil(W / gridCell) + 1;
+    gridH = Math.ceil(H / gridCell) + 1;
+    grid = new Array(gridW * gridH);
+  }
+
+  function rebuildGrid() {
+    for (let i = 0; i < grid.length; i++) grid[i] = null;
+    for (let p = 0; p < particles.length; p++) {
+      const pt = particles[p];
+      let cx = (pt.x / gridCell) | 0;
+      let cy = (pt.y / gridCell) | 0;
+      if (cx < 0) cx = 0; else if (cx >= gridW) cx = gridW - 1;
+      if (cy < 0) cy = 0; else if (cy >= gridH) cy = gridH - 1;
+      const idx = cy * gridW + cx;
+      pt.next = grid[idx];
+      grid[idx] = pt;
+    }
+  }
+
+  function step() {
+    rebuildGrid();
+
+    const spring = cfg.spring;
+    const damp = cfg.damping;
+    const colK = cfg.collision;
+    const colDist = spacing * 0.92;
+    const colDist2 = colDist * colDist;
+    const pr = cfg.pointerR;
+    const pr2 = pr * pr;
+    const pf = cfg.pointerF;
+    const maxV = spacing * 0.9;
+
+    for (let p = 0; p < particles.length; p++) {
+      const pt = particles[p];
+
+      pt.vx += (pt.hx - pt.x) * spring;
+      pt.vy += (pt.hy - pt.y) * spring;
+
+      if (colK > 0) {
+        const cx = Math.min(gridW - 1, Math.max(0, (pt.x / gridCell) | 0));
+        const cy = Math.min(gridH - 1, Math.max(0, (pt.y / gridCell) | 0));
+        for (let gy = cy - 1; gy <= cy + 1; gy++) {
+          if (gy < 0 || gy >= gridH) continue;
+          for (let gx = cx - 1; gx <= cx + 1; gx++) {
+            if (gx < 0 || gx >= gridW) continue;
+            let other = grid[gy * gridW + gx];
+            while (other) {
+              if (other !== pt) {
+                const dx = pt.x - other.x;
+                const dy = pt.y - other.y;
+                const d2 = dx * dx + dy * dy;
+                if (d2 < colDist2 && d2 > 1e-6) {
+                  const d = Math.sqrt(d2);
+                  const overlap = (colDist - d) / d;
+                  pt.vx += dx * overlap * colK * 0.5;
+                  pt.vy += dy * overlap * colK * 0.5;
+                }
+              }
+              other = other.next;
+            }
+          }
+        }
+      }
+    }
+
+    for (const ptr of pointers.values()) {
+      if (!ptr.active) continue;
+      const mvx = ptr.x - ptr.px;
+      const mvy = ptr.y - ptr.py;
+      let gx0 = Math.max(0, ((ptr.x - pr) / gridCell) | 0);
+      let gx1 = Math.min(gridW - 1, ((ptr.x + pr) / gridCell) | 0);
+      let gy0 = Math.max(0, ((ptr.y - pr) / gridCell) | 0);
+      let gy1 = Math.min(gridH - 1, ((ptr.y + pr) / gridCell) | 0);
+      for (let gy = gy0; gy <= gy1; gy++) {
+        for (let gx = gx0; gx <= gx1; gx++) {
+          let pt = grid[gy * gridW + gx];
+          while (pt) {
+            const dx = pt.x - ptr.x;
+            const dy = pt.y - ptr.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < pr2) {
+              const d = Math.sqrt(d2) || 0.0001;
+              const t = 1 - d / pr;
+              const push = t * t * 4.2 * pf;
+              pt.vx += (dx / d) * push;
+              pt.vy += (dy / d) * push;
+              pt.vx += mvx * t * 0.32 * pf;
+              pt.vy += mvy * t * 0.32 * pf;
+            }
+            pt = pt.next;
+          }
+        }
+      }
+    }
+
+    for (let p = 0; p < particles.length; p++) {
+      const pt = particles[p];
+      pt.vx *= damp;
+      pt.vy *= damp;
+      const v2 = pt.vx * pt.vx + pt.vy * pt.vy;
+      if (v2 > maxV * maxV) {
+        const s = maxV / Math.sqrt(v2);
+        pt.vx *= s; pt.vy *= s;
+      }
+      pt.x += pt.vx;
+      pt.y += pt.vy;
+    }
+
+    for (const ptr of pointers.values()) {
+      ptr.px = ptr.x;
+      ptr.py = ptr.y;
+    }
+  }
+
+  function render() {
+    ctx.fillStyle = '#050403';
+    ctx.fillRect(0, 0, W, H);
+
+    for (let p = 0; p < particles.length; p++) {
+      const pt = particles[p];
+      const spr = sprites[pt.tint];
+      const size = spriteBase * pt.scale;
+      const half = size * 0.5;
+      ctx.globalAlpha = pt.bright > 1 ? 1 : pt.bright;
+      ctx.drawImage(spr, pt.x - half, pt.y - half, size, size);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function loop() {
+    step();
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    build();
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture?.(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, px: e.clientX, py: e.clientY, active: true });
+    dismissHint();
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const ptr = pointers.get(e.pointerId);
+    if (ptr) { ptr.x = e.clientX; ptr.y = e.clientY; ptr.active = true; }
+    else if (e.pointerType === 'mouse' && e.buttons === 0) {
+      let h = pointers.get('hover');
+      if (!h) { pointers.set('hover', { x: e.clientX, y: e.clientY, px: e.clientX, py: e.clientY, active: true }); }
+      else { h.x = e.clientX; h.y = e.clientY; h.active = true; }
+      dismissHint();
+    }
+  });
+  function endPointer(e) { pointers.delete(e.pointerId); }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('pointerleave', (e) => {
+    if (e.pointerType === 'mouse') pointers.delete('hover');
+  });
+
+  const $ = id => document.getElementById(id);
+  function fmt(v, d = 2) { return Number(v).toFixed(d); }
+  function syncLabels() {
+    $('vDensity').textContent = cfg.density;
+    $('vRadius').textContent = cfg.pointerR + 'px';
+    $('vForce').textContent = fmt(cfg.pointerF, 1);
+    $('vSpring').textContent = fmt(cfg.spring, 3);
+    $('vCol').textContent = fmt(cfg.collision, 2);
+  }
+  $('density').addEventListener('input', e => { cfg.density = +e.target.value; build(); syncLabels(); });
+  $('radius').addEventListener('input',  e => { cfg.pointerR = +e.target.value; syncLabels(); });
+  $('force').addEventListener('input',   e => { cfg.pointerF = +e.target.value; syncLabels(); });
+  $('spring').addEventListener('input',  e => { cfg.spring = +e.target.value; syncLabels(); });
+  $('collision').addEventListener('input', e => { cfg.collision = +e.target.value; syncLabels(); });
+  $('reset').addEventListener('click', build);
+  $('hide').addEventListener('click', () => { $('ui').classList.add('hidden'); $('toggleUi').classList.add('show'); });
+  $('toggleUi').addEventListener('click', () => { $('ui').classList.remove('hidden'); $('toggleUi').classList.remove('show'); });
+
+  let hintTimer = setTimeout(dismissHint, 6000);
+  function dismissHint() { const h = $('hint'); if (h && !h.classList.contains('gone')) h.classList.add('gone'); clearTimeout(hintTimer); }
+
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+
+  syncLabels();
+  resize();
+  requestAnimationFrame(loop);
+})();
+</script>
