@@ -152,41 +152,39 @@
     return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
   }
 
-  const TINTS = [
-    [[255,236,200],[255,203,128],[150,86,30]],
-    [[255,224,170],[247,168,74],[128,66,22]],
-    [[255,210,150],[233,124,48],[104,48,16]],
-    [[255,196,132],[210,96,34],[86,38,14]],
-    [[250,214,160],[201,138,58],[92,52,20]],
-    [[255,230,185],[224,150,66],[112,58,20]],
-  ];
-
+  const LEVELS = 22;
   function buildSprites(size) {
     spriteBase = size;
-    sprites = TINTS.map(([hi, mid, lo]) => {
-      const s = Math.ceil(size);
+    sprites = [];
+    const s = Math.ceil(size);
+    for (let li = 0; li < LEVELS; li++) {
+      const L = li / (LEVELS - 1);            // 0 = negro, 1 = blanco
       const c = document.createElement('canvas');
       c.width = c.height = s;
       const g = c.getContext('2d');
       const r = s / 2;
+      const hi  = Math.round(Math.min(1, L + 0.26) * 255);
+      const mid = Math.round(L * 255);
+      const lo  = Math.round(L * 0.42 * 255);
       const grad = g.createRadialGradient(r * 0.66, r * 0.6, r * 0.05, r, r, r);
-      grad.addColorStop(0.0, `rgb(${hi[0]},${hi[1]},${hi[2]})`);
-      grad.addColorStop(0.35, `rgb(${mid[0]},${mid[1]},${mid[2]})`);
-      grad.addColorStop(0.85, `rgb(${lo[0]},${lo[1]},${lo[2]})`);
-      grad.addColorStop(1.0, `rgba(${lo[0]},${lo[1]},${lo[2]},0)`);
+      grad.addColorStop(0.0, `rgb(${hi},${hi},${hi})`);
+      grad.addColorStop(0.40, `rgb(${mid},${mid},${mid})`);
+      grad.addColorStop(0.85, `rgb(${lo},${lo},${lo})`);
+      grad.addColorStop(1.0, `rgba(${lo},${lo},${lo},0)`);
       g.fillStyle = grad;
       g.beginPath();
       g.arc(r, r, r, 0, Math.PI * 2);
       g.fill();
-      const spec = g.createRadialGradient(r * 0.62, r * 0.52, 0, r * 0.62, r * 0.52, r * 0.4);
-      spec.addColorStop(0, 'rgba(255,255,250,0.55)');
-      spec.addColorStop(1, 'rgba(255,255,250,0)');
+      const specA = 0.12 + 0.5 * L;
+      const spec = g.createRadialGradient(r * 0.62, r * 0.52, 0, r * 0.62, r * 0.52, r * 0.42);
+      spec.addColorStop(0, `rgba(255,255,255,${specA})`);
+      spec.addColorStop(1, 'rgba(255,255,255,0)');
       g.fillStyle = spec;
       g.beginPath();
-      g.arc(r * 0.62, r * 0.52, r * 0.4, 0, Math.PI * 2);
+      g.arc(r * 0.62, r * 0.52, r * 0.42, 0, Math.PI * 2);
       g.fill();
-      return c;
-    });
+      sprites.push(c);
+    }
   }
 
   function build() {
@@ -203,20 +201,11 @@
 
     particles = new Array(cols * rows);
     let k = 0;
-    const hotX = W * (0.42 + hash2(7, 3) * 0.16);
-    const hotY = H * (0.34 + hash2(11, 5) * 0.14);
-    const maxD = Math.hypot(W, H);
 
     for (let j = 0; j < rows; j++) {
       for (let i = 0; i < cols; i++) {
         const hx = originX + i * spacing;
         const hy = originY + j * spacing;
-        const n = valueNoise(hx * 0.012, hy * 0.012);
-        const dHot = Math.hypot(hx - hotX, hy - hotY) / maxD;
-        let field = n * 0.55 + (1 - dHot) * 0.85;
-        field = Math.max(0, Math.min(1, field));
-        let ti = Math.floor((1 - field) * TINTS.length);
-        ti = Math.max(0, Math.min(TINTS.length - 1, ti));
         const jx = (hash2(i, j) - 0.5) * spacing * 0.12;
         const jy = (hash2(i + 99, j + 77) - 0.5) * spacing * 0.12;
         const sc = 0.72 + hash2(i * 3, j * 5) * 0.5;
@@ -224,9 +213,8 @@
           x: hx + jx, y: hy + jy,
           hx, hy,
           vx: 0, vy: 0,
-          tint: ti,
           scale: sc,
-          bright: 0.85 + hash2(i * 7, j * 2) * 0.3,
+          rest: 0.9 + hash2(i * 7, j * 2) * 0.1,
         };
       }
     }
@@ -350,15 +338,19 @@
     ctx.fillStyle = '#050403';
     ctx.fillRect(0, 0, W, H);
 
+    const ref = spacing * 0.5;
+    const last = sprites.length - 1;
     for (let p = 0; p < particles.length; p++) {
       const pt = particles[p];
-      const spr = sprites[pt.tint];
+      const speed = Math.sqrt(pt.vx * pt.vx + pt.vy * pt.vy);
+      let L = (1 - Math.min(1, speed / ref)) * pt.rest;
+      let li = (L * last + 0.5) | 0;
+      if (li < 0) li = 0; else if (li > last) li = last;
+      const spr = sprites[li];
       const size = spriteBase * pt.scale;
       const half = size * 0.5;
-      ctx.globalAlpha = pt.bright > 1 ? 1 : pt.bright;
       ctx.drawImage(spr, pt.x - half, pt.y - half, size, size);
     }
-    ctx.globalAlpha = 1;
   }
 
   function loop() {
