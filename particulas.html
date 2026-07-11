@@ -109,7 +109,7 @@
   </div>
   <div class="row">
     <label>Densidad <b id="vDensity"></b></label>
-    <input id="density" type="range" min="1800" max="9000" step="200" value="4600">
+    <input id="density" type="range" min="2000" max="45000" step="500" value="6000">
   </div>
   <div class="row">
     <label>Radio del dedo <b id="vRadius"></b></label>
@@ -121,11 +121,15 @@
   </div>
   <div class="row">
     <label>Retorno a casa <b id="vSpring"></b></label>
-    <input id="spring" type="range" min="0.01" max="0.14" step="0.005" value="0.055">
+    <input id="spring" type="range" min="0.01" max="0.14" step="0.005" value="0.05">
   </div>
   <div class="row">
     <label>Colisión entre granos <b id="vCol"></b></label>
     <input id="collision" type="range" min="0" max="0.6" step="0.02" value="0.3">
+  </div>
+  <div class="row">
+    <label>Flujo orgánico <b id="vFlow"></b></label>
+    <input id="flow" type="range" min="0" max="1.5" step="0.05" value="0.5">
   </div>
   <div class="btns">
     <button id="reset">Reiniciar</button>
@@ -143,12 +147,13 @@
 
   // ---------- Config (editable desde el panel) ----------
   const cfg = {
-    density:   4600,   // nº de granos objetivo
+    density:   6000,   // nº de granos objetivo
     pointerR:  100,    // radio de interacción del dedo (px)
     pointerF:  1.4,    // multiplicador de fuerza del dedo
-    spring:    0.055,  // rigidez del muelle que devuelve a casa
+    spring:    0.05,   // rigidez del muelle que devuelve a casa
     collision: 0.3,    // rigidez de colisión entre vecinos
-    damping:   0.86,   // amortiguación de la velocidad
+    damping:   0.88,   // amortiguación de la velocidad (más alto = más glide)
+    flow:      0.5,    // intensidad del campo de flujo orgánico (0..1)
     mode:      'push', // 'push' | 'vortex' | 'pull'
   };
 
@@ -158,6 +163,7 @@
   let particles = [];
   let cols = 0, rows = 0, originX = 0, originY = 0;
   let grainR = 3;                   // radio base del punto (px)
+  let tick = 0;                     // tiempo para animar el campo de flujo
 
   // Rejilla espacial para búsqueda de vecinos O(N)
   let gridCell = 0, gridW = 0, gridH = 0, grid = null;
@@ -196,7 +202,7 @@
   // ---------- Construcción del grid de partículas ----------
   function build() {
     // spacing a partir de la densidad objetivo y el área
-    spacing = Math.max(9, Math.sqrt((W * H) / cfg.density));
+    spacing = Math.max(4, Math.sqrt((W * H) / cfg.density));
     const margin = spacing * 0.5;
     cols = Math.floor((W - margin * 2) / spacing) + 1;
     rows = Math.floor((H - margin * 2) / spacing) + 1;
@@ -268,13 +274,33 @@
     const pf = cfg.pointerF;
     const maxV = spacing * 0.9;          // límite de velocidad (estabilidad)
 
-    // Fuerzas: muelle a casa + colisión entre vecinos
+    // Campo de flujo orgánico (curl noise). Solo empuja a los granos que
+    // ya están desplazados de su sitio, así el reposo queda intacto y el
+    // retorno y las interacciones fluyen en curvas suaves en vez de líneas.
+    tick += 0.0035;
+    const flowAmt = spacing * 0.055 * cfg.flow;
+    const flowFreq = 1 / (spacing * 9);
+    const dispRef = spacing * 3;          // desplazamiento para flujo pleno
+
+    // Fuerzas: muelle a casa + flujo + colisión entre vecinos
     for (let p = 0; p < particles.length; p++) {
       const pt = particles[p];
 
       // Muelle hacia la posición de origen
-      pt.vx += (pt.hx - pt.x) * spring;
-      pt.vy += (pt.hy - pt.y) * spring;
+      const dhx = pt.hx - pt.x, dhy = pt.hy - pt.y;
+      pt.vx += dhx * spring;
+      pt.vy += dhy * spring;
+
+      // Flujo orgánico proporcional a lo desplazado que está el grano
+      if (flowAmt > 0) {
+        const disp = Math.sqrt(dhx * dhx + dhy * dhy);
+        if (disp > 1) {
+          const dz = disp < dispRef ? disp / dispRef : 1;
+          const ang = valueNoise(pt.x * flowFreq + tick, pt.y * flowFreq - tick) * 12.566;
+          pt.vx += Math.cos(ang) * flowAmt * dz;
+          pt.vy += Math.sin(ang) * flowAmt * dz;
+        }
+      }
 
       // Colisión con vecinos (solo en compresión) usando la rejilla
       if (colK > 0) {
@@ -327,9 +353,10 @@
               const t = 1 - d / pr;              // 1 en el centro, 0 en el borde
               const ux = dx / d, uy = dy / d;    // dirección radial (centro -> grano)
               if (mode === 'vortex') {
-                // Rotación tangencial + leve atracción -> remolino
-                const tang = t * 5.0 * pf;
-                const inw  = t * 0.9 * pf;
+                // Rotación tangencial suave + atracción muy leve. Con el
+                // campo de flujo el remolino queda orgánico, no caótico.
+                const tang = t * 2.1 * pf;
+                const inw  = t * 0.28 * pf;
                 pt.vx += (-uy) * tang - ux * inw;
                 pt.vy += ( ux) * tang - uy * inw;
               } else if (mode === 'pull') {
@@ -391,20 +418,32 @@
       buckets[li].push(pt);
     }
 
-    // Un solo fill por nivel
+    // Un solo fill por nivel. Con muchos granos pequeños se usan cuadrados
+    // (mucho más rápido y a ese tamaño se ven como puntos); con pocos granos
+    // grandes se usan círculos, que quedan más limpios.
     const TWO_PI = Math.PI * 2;
+    const useRect = grainR < 2.6;
     for (let li = 0; li <= last; li++) {
       const b = buckets[li];
       if (b.length === 0) continue;
       ctx.fillStyle = GRAY[li];
-      ctx.beginPath();
-      for (let n = 0; n < b.length; n++) {
-        const pt = b[n];
-        const r = grainR * pt.scale;
-        ctx.moveTo(pt.x + r, pt.y);
-        ctx.arc(pt.x, pt.y, r, 0, TWO_PI);
+      if (useRect) {
+        for (let n = 0; n < b.length; n++) {
+          const pt = b[n];
+          const r = grainR * pt.scale;
+          const dd = r + r;
+          ctx.fillRect(pt.x - r, pt.y - r, dd, dd);
+        }
+      } else {
+        ctx.beginPath();
+        for (let n = 0; n < b.length; n++) {
+          const pt = b[n];
+          const r = grainR * pt.scale;
+          ctx.moveTo(pt.x + r, pt.y);
+          ctx.arc(pt.x, pt.y, r, 0, TWO_PI);
+        }
+        ctx.fill();
       }
-      ctx.fill();
     }
   }
 
@@ -462,12 +501,14 @@
     $('vForce').textContent = fmt(cfg.pointerF, 1);
     $('vSpring').textContent = fmt(cfg.spring, 3);
     $('vCol').textContent = fmt(cfg.collision, 2);
+    $('vFlow').textContent = fmt(cfg.flow, 2);
   }
   $('density').addEventListener('input', e => { cfg.density = +e.target.value; build(); syncLabels(); });
   $('radius').addEventListener('input',  e => { cfg.pointerR = +e.target.value; syncLabels(); });
   $('force').addEventListener('input',   e => { cfg.pointerF = +e.target.value; syncLabels(); });
   $('spring').addEventListener('input',  e => { cfg.spring = +e.target.value; syncLabels(); });
   $('collision').addEventListener('input', e => { cfg.collision = +e.target.value; syncLabels(); });
+  $('flow').addEventListener('input',    e => { cfg.flow = +e.target.value; syncLabels(); });
   $('mode').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-mode]');
     if (!btn) return;
