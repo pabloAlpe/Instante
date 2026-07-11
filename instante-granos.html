@@ -11,13 +11,14 @@
   }
   #stage { position: fixed; inset: 0; display: block; touch-action: none; }
 
+  /* Panel */
   #ui {
     position: fixed; top: 14px; left: 14px; z-index: 10;
     display: flex; flex-direction: column; gap: 10px;
     padding: 14px 16px 16px;
     width: 232px;
     background: rgba(20,15,10,0.55);
-    border: 1px solid rgba(240,180,110,0.14);
+    border: 1px solid rgba(233,220,203,0.12);
     border-radius: 14px;
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
@@ -26,44 +27,53 @@
   #ui.hidden { opacity: 0; transform: translateY(-8px); pointer-events: none; }
   #ui h1 {
     font-size: 12px; letter-spacing: .22em; text-transform: uppercase;
-    font-weight: 600; color: #f2b46a; opacity: .9;
+    font-weight: 600; color: #e9dccb; opacity: .9;
   }
   #ui .sub { font-size: 10.5px; line-height: 1.5; color: rgba(233,220,203,.5); margin-top:-4px; }
   .row { display: flex; flex-direction: column; gap: 5px; }
   .row label { font-size: 10.5px; letter-spacing: .04em; display: flex; justify-content: space-between; color: rgba(233,220,203,.72); }
-  .row label b { color: #f2b46a; font-weight: 600; }
+  .row label b { color: #e9dccb; font-weight: 600; }
   input[type=range] {
     -webkit-appearance: none; appearance: none;
     width: 100%; height: 3px; border-radius: 3px;
-    background: rgba(240,180,110,0.22); outline: none;
+    background: rgba(233,220,203,0.20); outline: none;
   }
   input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none;
     width: 15px; height: 15px; border-radius: 50%;
-    background: #f2b46a; cursor: pointer; border: 2px solid #1a120a;
+    background: #e9dccb; cursor: pointer; border: 2px solid #1a120a;
   }
   input[type=range]::-moz-range-thumb {
     width: 15px; height: 15px; border-radius: 50%;
-    background: #f2b46a; cursor: pointer; border: 2px solid #1a120a;
+    background: #e9dccb; cursor: pointer; border: 2px solid #1a120a;
   }
-  input[type=range]:focus-visible { outline: 2px solid #f2b46a; outline-offset: 4px; }
+  .seg { display: flex; gap: 5px; }
+  .seg button {
+    flex: 1; font-size: 10.5px; letter-spacing: .03em;
+    padding: 7px 0; border-radius: 8px; cursor: pointer;
+    color: rgba(233,220,203,.7); background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    transition: background .16s ease, color .16s ease, border-color .16s ease;
+  }
+  .seg button.on {
+    color: #0d0b08; background: #e9dccb; border-color: #e9dccb; font-weight: 600;
+  }
   .btns { display: flex; gap: 8px; margin-top: 2px; }
   .btns button {
     flex: 1; font-size: 11px; letter-spacing: .04em;
     padding: 8px 0; border-radius: 9px; cursor: pointer;
-    color: #e9dccb; background: rgba(240,180,110,0.10);
-    border: 1px solid rgba(240,180,110,0.20);
+    color: #e9dccb; background: rgba(233,220,203,0.08);
+    border: 1px solid rgba(233,220,203,0.18);
     transition: background .18s ease;
   }
-  .btns button:hover { background: rgba(240,180,110,0.20); }
-  .btns button:focus-visible { outline: 2px solid #f2b46a; outline-offset: 2px; }
+  .btns button:hover { background: rgba(233,220,203,0.18); }
   #toggleUi {
     position: fixed; top: 14px; left: 14px; z-index: 11;
     width: 40px; height: 40px; border-radius: 11px; cursor: pointer;
     display: none; align-items: center; justify-content: center;
-    background: rgba(20,15,10,0.55); border: 1px solid rgba(240,180,110,0.14);
+    background: rgba(20,15,10,0.55); border: 1px solid rgba(233,220,203,0.12);
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    color: #f2b46a; font-size: 18px;
+    color: #e9dccb; font-size: 18px;
   }
   #toggleUi.show { display: flex; }
   #hint {
@@ -80,8 +90,16 @@
 <button id="toggleUi" aria-label="ajustes">≡</button>
 <div id="ui">
   <h1>Instante</h1>
-  <div class="sub">Point cloud de granos. Arrastra el dedo o el ratón para empujarlos; siempre vuelven a su sitio.</div>
+  <div class="sub">Point cloud de granos. Elige la fuerza del dedo; siempre vuelven a su sitio.</div>
 
+  <div class="row">
+    <label>Modo del dedo</label>
+    <div class="seg" id="mode">
+      <button data-mode="push" class="on">Empujar</button>
+      <button data-mode="vortex">Vórtice</button>
+      <button data-mode="pull">Atraer</button>
+    </div>
+  </div>
   <div class="row">
     <label>Densidad <b id="vDensity"></b></label>
     <input id="density" type="range" min="1800" max="9000" step="200" value="4600">
@@ -108,7 +126,7 @@
   </div>
 </div>
 
-<div id="hint">mueve el dedo sobre los granos</div>
+<div id="hint">arrastra el dedo sobre los granos</div>
 
 <script>
 "use strict";
@@ -116,27 +134,31 @@
   const canvas = document.getElementById('stage');
   const ctx = canvas.getContext('2d', { alpha: false });
 
+  // ---------- Config (editable desde el panel) ----------
   const cfg = {
-    density:   4600,
-    pointerR:  90,
-    pointerF:  1.4,
-    spring:    0.055,
-    collision: 0.3,
-    damping:   0.86,
+    density:   4600,   // nº de granos objetivo
+    pointerR:  100,    // radio de interacción del dedo (px)
+    pointerF:  1.4,    // multiplicador de fuerza del dedo
+    spring:    0.055,  // rigidez del muelle que devuelve a casa
+    collision: 0.3,    // rigidez de colisión entre vecinos
+    damping:   0.86,   // amortiguación de la velocidad
+    mode:      'push', // 'push' | 'vortex' | 'pull'
   };
 
+  // ---------- Estado ----------
   let W = 0, H = 0, DPR = 1;
-  let spacing = 22;
+  let spacing = 22;                 // distancia entre granos en el grid
   let particles = [];
   let cols = 0, rows = 0, originX = 0, originY = 0;
+  let grainR = 3;                   // radio base del punto (px)
 
-  let sprites = [];
-  let spriteBase = 0;
-
+  // Rejilla espacial para búsqueda de vecinos O(N)
   let gridCell = 0, gridW = 0, gridH = 0, grid = null;
 
-  const pointers = new Map();
+  // Punteros activos (multi-touch + ratón)
+  const pointers = new Map();       // id -> {x, y, px, py, active}
 
+  // ---------- Ruido de valor (para el campo de color) ----------
   function hash2(ix, iy) {
     let h = ix * 374761393 + iy * 668265263;
     h = (h ^ (h >> 13)) * 1274126177;
@@ -152,52 +174,33 @@
     return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
   }
 
-  const LEVELS = 22;
-  function buildSprites(size) {
-    spriteBase = size;
-    sprites = [];
-    const s = Math.ceil(size);
-    for (let li = 0; li < LEVELS; li++) {
-      const L = li / (LEVELS - 1);            // 0 = negro, 1 = blanco
-      const c = document.createElement('canvas');
-      c.width = c.height = s;
-      const g = c.getContext('2d');
-      const r = s / 2;
-      const hi  = Math.round(Math.min(1, L + 0.26) * 255);
-      const mid = Math.round(L * 255);
-      const lo  = Math.round(L * 0.42 * 255);
-      const grad = g.createRadialGradient(r * 0.66, r * 0.6, r * 0.05, r, r, r);
-      grad.addColorStop(0.0, `rgb(${hi},${hi},${hi})`);
-      grad.addColorStop(0.40, `rgb(${mid},${mid},${mid})`);
-      grad.addColorStop(0.85, `rgb(${lo},${lo},${lo})`);
-      grad.addColorStop(1.0, `rgba(${lo},${lo},${lo},0)`);
-      g.fillStyle = grad;
-      g.beginPath();
-      g.arc(r, r, r, 0, Math.PI * 2);
-      g.fill();
-      const specA = 0.12 + 0.5 * L;
-      const spec = g.createRadialGradient(r * 0.62, r * 0.52, 0, r * 0.62, r * 0.52, r * 0.42);
-      spec.addColorStop(0, `rgba(255,255,255,${specA})`);
-      spec.addColorStop(1, 'rgba(255,255,255,0)');
-      g.fillStyle = spec;
-      g.beginPath();
-      g.arc(r * 0.62, r * 0.52, r * 0.42, 0, Math.PI * 2);
-      g.fill();
-      sprites.push(c);
-    }
+  // ---------- Paleta de grises (render minimal, puntos planos) ----------
+  // Rampa de blanco (reposo) a negro (alta velocidad). Se dibuja por
+  // niveles para agrupar los cientos de puntos en pocas llamadas.
+  const LEVELS = 24;
+  const GRAY = new Array(LEVELS);
+  const buckets = new Array(LEVELS);
+  for (let li = 0; li < LEVELS; li++) {
+    const v = Math.round((li / (LEVELS - 1)) * 255);
+    GRAY[li] = `rgb(${v},${v},${v})`;
+    buckets[li] = [];
   }
 
+  // ---------- Construcción del grid de partículas ----------
   function build() {
+    // spacing a partir de la densidad objetivo y el área
     spacing = Math.max(9, Math.sqrt((W * H) / cfg.density));
     const margin = spacing * 0.5;
     cols = Math.floor((W - margin * 2) / spacing) + 1;
     rows = Math.floor((H - margin * 2) / spacing) + 1;
+    // Centrar el grid
     const gridWpx = (cols - 1) * spacing;
     const gridHpx = (rows - 1) * spacing;
     originX = (W - gridWpx) / 2;
     originY = (H - gridHpx) / 2;
 
-    buildSprites(spacing * 1.55);
+    // Radio del punto: pequeño respecto al espaciado -> look minimal con aire
+    grainR = spacing * 0.30;
 
     particles = new Array(cols * rows);
     let k = 0;
@@ -206,25 +209,30 @@
       for (let i = 0; i < cols; i++) {
         const hx = originX + i * spacing;
         const hy = originY + j * spacing;
+        // jitter de posición inicial mínimo para que no sea un grid perfecto
         const jx = (hash2(i, j) - 0.5) * spacing * 0.12;
         const jy = (hash2(i + 99, j + 77) - 0.5) * spacing * 0.12;
+        // Escala individual del grano
         const sc = 0.72 + hash2(i * 3, j * 5) * 0.5;
         particles[k++] = {
           x: hx + jx, y: hy + jy,
           hx, hy,
           vx: 0, vy: 0,
           scale: sc,
+          // brillo en reposo: casi blanco, con textura sutil grano a grano
           rest: 0.9 + hash2(i * 7, j * 2) * 0.1,
         };
       }
     }
 
+    // Rejilla espacial: celda ~ radio de colisión
     gridCell = spacing;
     gridW = Math.ceil(W / gridCell) + 1;
     gridH = Math.ceil(H / gridCell) + 1;
     grid = new Array(gridW * gridH);
   }
 
+  // ---------- Rejilla espacial ----------
   function rebuildGrid() {
     for (let i = 0; i < grid.length; i++) grid[i] = null;
     for (let p = 0; p < particles.length; p++) {
@@ -239,25 +247,29 @@
     }
   }
 
+  // ---------- Física ----------
   function step() {
     rebuildGrid();
 
     const spring = cfg.spring;
     const damp = cfg.damping;
     const colK = cfg.collision;
-    const colDist = spacing * 0.92;
+    const colDist = spacing * 0.92;      // umbral de colisión (compresión)
     const colDist2 = colDist * colDist;
     const pr = cfg.pointerR;
     const pr2 = pr * pr;
     const pf = cfg.pointerF;
-    const maxV = spacing * 0.9;
+    const maxV = spacing * 0.9;          // límite de velocidad (estabilidad)
 
+    // Fuerzas: muelle a casa + colisión entre vecinos
     for (let p = 0; p < particles.length; p++) {
       const pt = particles[p];
 
+      // Muelle hacia la posición de origen
       pt.vx += (pt.hx - pt.x) * spring;
       pt.vy += (pt.hy - pt.y) * spring;
 
+      // Colisión con vecinos (solo en compresión) usando la rejilla
       if (colK > 0) {
         const cx = Math.min(gridW - 1, Math.max(0, (pt.x / gridCell) | 0));
         const cy = Math.min(gridH - 1, Math.max(0, (pt.y / gridCell) | 0));
@@ -273,9 +285,10 @@
                 const d2 = dx * dx + dy * dy;
                 if (d2 < colDist2 && d2 > 1e-6) {
                   const d = Math.sqrt(d2);
-                  const overlap = (colDist - d) / d;
-                  pt.vx += dx * overlap * colK * 0.5;
-                  pt.vy += dy * overlap * colK * 0.5;
+                  const overlap = (colDist - d) / d;   // normalizado
+                  const fx = dx * overlap * colK * 0.5;
+                  const fy = dy * overlap * colK * 0.5;
+                  pt.vx += fx; pt.vy += fy;
                 }
               }
               other = other.next;
@@ -285,9 +298,11 @@
       }
     }
 
+    // Fuerza de los punteros (el "dedo"): empujar / vórtice / atraer
+    const mode = cfg.mode;
     for (const ptr of pointers.values()) {
       if (!ptr.active) continue;
-      const mvx = ptr.x - ptr.px;
+      const mvx = ptr.x - ptr.px;    // velocidad del dedo (arrastre)
       const mvy = ptr.y - ptr.py;
       let gx0 = Math.max(0, ((ptr.x - pr) / gridCell) | 0);
       let gx1 = Math.min(gridW - 1, ((ptr.x + pr) / gridCell) | 0);
@@ -302,12 +317,25 @@
             const d2 = dx * dx + dy * dy;
             if (d2 < pr2) {
               const d = Math.sqrt(d2) || 0.0001;
-              const t = 1 - d / pr;
-              const push = t * t * 4.2 * pf;
-              pt.vx += (dx / d) * push;
-              pt.vy += (dy / d) * push;
-              pt.vx += mvx * t * 0.32 * pf;
-              pt.vy += mvy * t * 0.32 * pf;
+              const t = 1 - d / pr;              // 1 en el centro, 0 en el borde
+              const ux = dx / d, uy = dy / d;    // dirección radial (centro -> grano)
+              if (mode === 'vortex') {
+                // Rotación tangencial + leve atracción -> remolino
+                const tang = t * 5.0 * pf;
+                const inw  = t * 0.9 * pf;
+                pt.vx += (-uy) * tang - ux * inw;
+                pt.vy += ( ux) * tang - uy * inw;
+              } else if (mode === 'pull') {
+                // Atrae los granos hacia el dedo
+                const pull = t * t * 3.4 * pf;
+                pt.vx -= ux * pull;
+                pt.vy -= uy * pull;
+              } else {
+                // Empuje radial (colisión) + arrastre con el movimiento del dedo
+                const push = t * t * 4.2 * pf;
+                pt.vx += ux * push + mvx * t * 0.32 * pf;
+                pt.vy += uy * push + mvy * t * 0.32 * pf;
+              }
             }
             pt = pt.next;
           }
@@ -315,10 +343,12 @@
       }
     }
 
+    // Integración + amortiguación + límite de velocidad
     for (let p = 0; p < particles.length; p++) {
       const pt = particles[p];
       pt.vx *= damp;
       pt.vy *= damp;
+      // límite
       const v2 = pt.vx * pt.vx + pt.vy * pt.vy;
       if (v2 > maxV * maxV) {
         const s = maxV / Math.sqrt(v2);
@@ -328,28 +358,46 @@
       pt.y += pt.vy;
     }
 
+    // Avanzar el histórico de punteros
     for (const ptr of pointers.values()) {
       ptr.px = ptr.x;
       ptr.py = ptr.y;
     }
   }
 
+  // ---------- Render (minimal: puntos planos, agrupados por nivel) ----------
   function render() {
     ctx.fillStyle = '#050403';
     ctx.fillRect(0, 0, W, H);
 
-    const ref = spacing * 0.5;
-    const last = sprites.length - 1;
+    const ref = spacing * 0.5;          // velocidad a la que un grano llega a "negro"
+    const last = LEVELS - 1;
+    for (let li = 0; li <= last; li++) buckets[li].length = 0;
+
+    // Clasificar cada grano en su nivel de gris según la velocidad
     for (let p = 0; p < particles.length; p++) {
       const pt = particles[p];
       const speed = Math.sqrt(pt.vx * pt.vx + pt.vy * pt.vy);
-      let L = (1 - Math.min(1, speed / ref)) * pt.rest;
+      let L = (1 - Math.min(1, speed / ref)) * pt.rest;  // 1 reposo -> 0 veloz
       let li = (L * last + 0.5) | 0;
       if (li < 0) li = 0; else if (li > last) li = last;
-      const spr = sprites[li];
-      const size = spriteBase * pt.scale;
-      const half = size * 0.5;
-      ctx.drawImage(spr, pt.x - half, pt.y - half, size, size);
+      buckets[li].push(pt);
+    }
+
+    // Un solo fill por nivel
+    const TWO_PI = Math.PI * 2;
+    for (let li = 0; li <= last; li++) {
+      const b = buckets[li];
+      if (b.length === 0) continue;
+      ctx.fillStyle = GRAY[li];
+      ctx.beginPath();
+      for (let n = 0; n < b.length; n++) {
+        const pt = b[n];
+        const r = grainR * pt.scale;
+        ctx.moveTo(pt.x + r, pt.y);
+        ctx.arc(pt.x, pt.y, r, 0, TWO_PI);
+      }
+      ctx.fill();
     }
   }
 
@@ -359,6 +407,7 @@
     requestAnimationFrame(loop);
   }
 
+  // ---------- Resize ----------
   function resize() {
     DPR = Math.min(2, window.devicePixelRatio || 1);
     W = window.innerWidth;
@@ -371,28 +420,33 @@
     build();
   }
 
+  // ---------- Punteros (touch + ratón) ----------
+  function setPointer(id, x, y, active) {
+    let ptr = pointers.get(id);
+    if (!ptr) { ptr = { x, y, px: x, py: y, active }; pointers.set(id, ptr); }
+    ptr.x = x; ptr.y = y; ptr.active = active;
+    if (active && (ptr.px === undefined)) { ptr.px = x; ptr.py = y; }
+  }
+
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture?.(e.pointerId);
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, px: e.clientX, py: e.clientY, active: true });
+    const ptr = { x: e.clientX, y: e.clientY, px: e.clientX, py: e.clientY, active: true };
+    pointers.set(e.pointerId, ptr);
     dismissHint();
   });
   canvas.addEventListener('pointermove', (e) => {
+    // Solo actúa mientras se arrastra (dedo o ratón con botón pulsado).
+    // Sin pulsar no hay fuerza -> los granos descansan en su sitio.
     const ptr = pointers.get(e.pointerId);
     if (ptr) { ptr.x = e.clientX; ptr.y = e.clientY; ptr.active = true; }
-    else if (e.pointerType === 'mouse' && e.buttons === 0) {
-      let h = pointers.get('hover');
-      if (!h) { pointers.set('hover', { x: e.clientX, y: e.clientY, px: e.clientX, py: e.clientY, active: true }); }
-      else { h.x = e.clientX; h.y = e.clientY; h.active = true; }
-      dismissHint();
-    }
   });
-  function endPointer(e) { pointers.delete(e.pointerId); }
+  function endPointer(e) {
+    pointers.delete(e.pointerId);
+  }
   canvas.addEventListener('pointerup', endPointer);
   canvas.addEventListener('pointercancel', endPointer);
-  canvas.addEventListener('pointerleave', (e) => {
-    if (e.pointerType === 'mouse') pointers.delete('hover');
-  });
 
+  // ---------- UI ----------
   const $ = id => document.getElementById(id);
   function fmt(v, d = 2) { return Number(v).toFixed(d); }
   function syncLabels() {
@@ -407,6 +461,12 @@
   $('force').addEventListener('input',   e => { cfg.pointerF = +e.target.value; syncLabels(); });
   $('spring').addEventListener('input',  e => { cfg.spring = +e.target.value; syncLabels(); });
   $('collision').addEventListener('input', e => { cfg.collision = +e.target.value; syncLabels(); });
+  $('mode').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-mode]');
+    if (!btn) return;
+    cfg.mode = btn.dataset.mode;
+    for (const b of $('mode').children) b.classList.toggle('on', b === btn);
+  });
   $('reset').addEventListener('click', build);
   $('hide').addEventListener('click', () => { $('ui').classList.add('hidden'); $('toggleUi').classList.add('show'); });
   $('toggleUi').addEventListener('click', () => { $('ui').classList.remove('hidden'); $('toggleUi').classList.remove('show'); });
@@ -417,6 +477,7 @@
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', () => setTimeout(resize, 120));
 
+  // ---------- Arranque ----------
   syncLabels();
   resize();
   requestAnimationFrame(loop);
